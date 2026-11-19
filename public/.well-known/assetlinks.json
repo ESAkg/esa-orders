@@ -1,0 +1,8 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "kg.esa.orders",
+    "sha256_cert_fingerprints": ["B3:DF:0D:CA:44:6A:E6:4C:81:EC:8B:52:EA:B0:71:C9:0B:65:D4:75:C8:72:5D:8C:BD:94:56:13:85:50:66:0C"]
+  }
+}]

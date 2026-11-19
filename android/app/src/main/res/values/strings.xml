@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ESA Заказы</string>
+    <string name="launch_url">https://esa-orders.onrender.com/admin/</string>
+    <string name="asset_statements" translatable="false">
+        [{ \"relation\": [\"delegate_permission/common.handle_all_urls\"], \"target\": { \"namespace\": \"web\", \"site\": \"https://esa-orders.onrender.com\" } }]
+    </string>
+    <color name="navy">#0A1633</color>
+</resources>
