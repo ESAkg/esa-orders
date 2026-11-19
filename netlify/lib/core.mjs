@@ -1,5 +1,6 @@
 // Общая логика: услуги, проверка данных, хранилище, Telegram.
 import { getStore } from "./store.mjs";
+import { pushOwner } from "./push.mjs";
 import { createHash, randomBytes } from "node:crypto";
 
 // ---------- Услуги (единый список для сайта и бота). Цены — примерные, поменяйте под себя.
@@ -149,9 +150,19 @@ export const ownerOrderButtons = (id) => ({
   ],
 });
 
+const fmtTime = (ts) => new Date(ts).toLocaleString("ru-RU", { timeZone: "Asia/Bishkek", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+
+export async function notifyOwner(payload) {
+  try { await pushOwner(misc(), payload); } catch (e) { console.error("push error", e.message); }
+}
+
 export async function notifyOwnerNewOrder(o) {
-  if (!tgEnabled()) return;
-  await send(OWNER(), orderCard(o), { reply_markup: ownerOrderButtons(o.id) });
+  await notifyOwner({
+    title: `🆕 Новый заказ ${o.id}`,
+    body: `${serviceTitle(o.service)} · ${o.name} · ${fmtTime(o.createdAt)}\n${o.details.slice(0, 120)}`,
+    tag: o.id, url: `/admin/#order=${o.id}`,
+  });
+  if (tgEnabled()) await send(OWNER(), orderCard(o), { reply_markup: ownerOrderButtons(o.id) });
 }
 
 export async function saveNewOrder(data, source, chatId) {
@@ -159,4 +170,26 @@ export async function saveNewOrder(data, source, chatId) {
   await orders().setJSON(o.id, o);
   await notifyOwnerNewOrder(o);
   return o;
+}
+
+// Тексты клиенту при смене статуса (Telegram)
+export const CLIENT_TEXT = {
+  accepted: (o) => `✅ Самат принял ваш заказ <b>${esc(o.id)}</b>!\n\nОн свяжется с вами, чтобы уточнить детали и цену.${process.env.PAY_INFO ? `\n\n💳 Оплата / предоплата после согласования цены:\n${esc(process.env.PAY_INFO)}` : ""}`,
+  work: (o) => `🛠 Заказ <b>${esc(o.id)}</b> в работе.`,
+  done: (o) => `🎉 Заказ <b>${esc(o.id)}</b> готов! Спасибо, что выбрали ESA.\n\nБуду очень благодарен за отзыв ⭐ — это помогает другим найти меня:\n${esc(process.env.URL || "")}/#reviews`,
+  rejected: (o) => `К сожалению, заказ <b>${esc(o.id)}</b> сейчас не получится выполнить. Самат может написать вам с деталями. Спасибо за обращение!`,
+  new: (o) => `🆕 Заказ <b>${esc(o.id)}</b> снова ожидает ответа.`,
+};
+
+// Смена статуса заказа владельцем (из бота или из приложения). Возвращает {order, clientNotified} или null.
+export async function setOrderStatus(id, status) {
+  if (!STATUS[status]) return null;
+  const o = await orders().get(id, { type: "json" });
+  if (!o) return null;
+  o.status = status;
+  o.history = [...(o.history || []), { status, at: Date.now() }];
+  await orders().setJSON(o.id, o);
+  let clientNotified = false;
+  if (o.chatId && tgEnabled()) clientNotified = Boolean((await send(o.chatId, CLIENT_TEXT[status](o)))?.ok);
+  return { order: o, clientNotified };
 }

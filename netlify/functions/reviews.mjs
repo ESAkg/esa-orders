@@ -1,5 +1,5 @@
 // GET /api/reviews — одобренные отзывы и средняя оценка. POST — новый отзыв (появится после вашего одобрения в боте).
-import { json, validateReview, rateLimited, reviews, tgEnabled, send, OWNER, esc, newKey } from "../lib/core.mjs";
+import { json, validateReview, rateLimited, reviews, tgEnabled, send, OWNER, esc, newKey, notifyOwner } from "../lib/core.mjs";
 
 export default async (req, context) => {
   const store = reviews();
@@ -26,6 +26,7 @@ export default async (req, context) => {
   const id = newKey().slice(0, 10);
   const r = { ...v.review, id, createdAt: Date.now() };
   await store.setJSON(`pending/${id}`, r);
+  await notifyOwner({ title: `⭐ Новый отзыв: ${"★".repeat(r.rating)}`, body: `${r.name}: ${r.text.slice(0, 140)}`, tag: `review-${id}`, url: "/admin/#reviews" });
 
   if (tgEnabled()) {
     await send(OWNER(), `<b>⭐ Новый отзыв (${"★".repeat(r.rating)}${"☆".repeat(5 - r.rating)})</b>\n<b>${esc(r.name)}:</b> ${esc(r.text)}\n\nОпубликовать на сайте?`, {

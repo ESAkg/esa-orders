@@ -33,6 +33,10 @@ Object.assign(process.env, {
 const order = (await import("../netlify/functions/order.mjs")).default;
 const reviewsFn = (await import("../netlify/functions/reviews.mjs")).default;
 const bot = (await import("../netlify/functions/telegram.mjs")).default;
+process.env.ADMIN_TOKEN = "admin-test-token-abcdefghijklmnop";
+const admin = (await import("../netlify/functions/admin.mjs")).default;
+const adminReq = (path, body, tok = process.env.ADMIN_TOKEN) => new Request(`https://esa.example${path}`, {
+  method: body ? "POST" : "GET", headers: { "content-type": "application/json", authorization: `Bearer ${tok}` }, body: body ? JSON.stringify(body) : undefined });
 
 const ctx = (ip = "1.1.1.1") => ({ ip });
 const post = (path, body, headers = {}) => new Request(`https://esa.example${path}`, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
@@ -134,4 +138,30 @@ test("отзывы: появляются только после одобрен�
   assert.equal(list.average, 5);
   r = await reviewsFn(post("/api/reviews", { name: "X", rating: 9, text: "плохая оценка" }), ctx("5.5.5.6"));
   assert.equal(r.status, 400);
+});
+
+test("приложение: без ключа — 401, с ключом — заказы без секретного ключа клиента", async () => {
+  assert.equal((await admin(adminReq("/api/admin/data", null, "wrong-token"), ctx("6.6.6.1"))).status, 401);
+  const r = await admin(adminReq("/api/admin/data"), ctx("6.6.6.2"));
+  assert.equal(r.status, 200);
+  const d = await r.json();
+  assert.ok(d.orders.length >= 2);
+  assert.ok(d.orders.every((o) => !("key" in o)), "секретный ключ клиента не отдаётся");
+  assert.ok(d.orders[0].createdAt >= d.orders[d.orders.length - 1].createdAt, "сортировка: новые сверху");
+});
+
+test("приложение: смена статуса уведомляет клиента в Telegram", async () => {
+  sent.length = 0;
+  const r = await admin(adminReq("/api/admin/status", { id: siteOrder.id, status: "done" }), ctx("6.6.6.3"));
+  const j = await r.json();
+  assert.equal(j.status, "done");
+  assert.equal(j.clientNotified, true);
+  assert.ok(sent.some((s) => s.chat_id === 555 && s.text.includes("готов")));
+  assert.equal((await admin(adminReq("/api/admin/status", { id: siteOrder.id, status: "hack" }), ctx("6.6.6.4"))).status, 404);
+});
+
+test("приложение: подписка на уведомления проверяется", async () => {
+  assert.equal((await admin(adminReq("/api/admin/subscribe", { subscription: { endpoint: "http://evil" } }), ctx("6.6.6.5"))).status, 400);
+  const ok = await admin(adminReq("/api/admin/subscribe", { subscription: { endpoint: "https://fcm.googleapis.com/x", keys: { p256dh: "a", auth: "b" } } }), ctx("6.6.6.6"));
+  assert.equal(ok.status, 200);
 });

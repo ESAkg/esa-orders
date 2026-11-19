@@ -2,7 +2,7 @@
 // Владельцу — карточки заказов с кнопками, ответы клиентам через «Ответить», одобрение отзывов.
 import {
   SERVICES, STATUS, serviceTitle, json, esc, sameKey, validateOrder,
-  orders, reviews, misc, tg, send, OWNER, orderCard, ownerOrderButtons, saveNewOrder,
+  orders, reviews, misc, tg, send, OWNER, orderCard, ownerOrderButtons, saveNewOrder, setOrderStatus,
 } from "../lib/core.mjs";
 
 const SITE = () => process.env.URL || "";
@@ -163,13 +163,6 @@ async function ownerMessage(msg) {
   return send(msg.chat.id, "Команды владельца:\n/orders — активные заказы\n/o ESA-123456 — карточка заказа\nЧтобы ответить клиенту — ответьте (reply) на его сообщение или карточку заказа.");
 }
 
-const CLIENT_TEXT = {
-  accepted: (o) => `✅ Самат принял ваш заказ <b>${esc(o.id)}</b>!\n\nОн свяжется с вами, чтобы уточнить детали и цену.${process.env.PAY_INFO ? `\n\n💳 Оплата / предоплата после согласования цены:\n${esc(process.env.PAY_INFO)}` : ""}`,
-  work: (o) => `🛠 Заказ <b>${esc(o.id)}</b> в работе.`,
-  done: (o) => `🎉 Заказ <b>${esc(o.id)}</b> готов! Спасибо, что выбрали ESA.\n\nБуду очень благодарен за отзыв ⭐ — это помогает другим найти меня:\n${esc(SITE())}#reviews`,
-  rejected: (o) => `К сожалению, заказ <b>${esc(o.id)}</b> сейчас не получится выполнить. Самат может написать вам с деталями. Спасибо за обращение!`,
-};
-
 async function ownerCallback(cb) {
   const [act, id] = (cb.data || "").split(":");
   if (act === "rvok" || act === "rvno") {
@@ -185,15 +178,12 @@ async function ownerCallback(cb) {
 
   const map = { acc: "accepted", rej: "rejected", work: "work", done: "done" };
   if (!map[act]) return tg("answerCallbackQuery", { callback_query_id: cb.id });
-  const o = await orders().get(id, { type: "json" });
-  if (!o) return tg("answerCallbackQuery", { callback_query_id: cb.id, text: "Заказ не найден" });
-  o.status = map[act];
-  o.history = [...(o.history || []), { status: o.status, at: Date.now() }];
-  await orders().setJSON(o.id, o);
+  const res = await setOrderStatus(id, map[act]);
+  if (!res) return tg("answerCallbackQuery", { callback_query_id: cb.id, text: "Заказ не найден" });
+  const o = res.order;
   await tg("editMessageText", { chat_id: cb.message.chat.id, message_id: cb.message.message_id, text: orderCard(o), parse_mode: "HTML", reply_markup: ownerOrderButtons(o.id) });
   let note = `Статус: ${STATUS[o.status]}`;
-  if (o.chatId) { await send(o.chatId, CLIENT_TEXT[o.status](o)); note += " · клиенту отправлено"; }
-  else note += " · клиент не в Telegram, свяжитесь по контакту";
+  note += o.chatId ? " · клиенту отправлено" : " · клиент не в Telegram, свяжитесь по контакту";
   return tg("answerCallbackQuery", { callback_query_id: cb.id, text: note.slice(0, 190), show_alert: !o.chatId });
 }
 

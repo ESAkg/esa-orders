@@ -11,9 +11,10 @@ const routes = {
   "/api/telegram": (await import("./netlify/functions/telegram.mjs")).default,
   "/api/tg-setup": (await import("./netlify/functions/tg-setup.mjs")).default,
 };
+const adminApi = (await import("./netlify/functions/admin.mjs")).default;
 
 const root = fileURLToPath(new URL("./public/", import.meta.url));
-const types = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".xml": "application/xml", ".txt": "text/plain; charset=utf-8" };
+const types = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".xml": "application/xml", ".txt": "text/plain; charset=utf-8", ".json": "application/json", ".webmanifest": "application/manifest+json", ".png": "image/png", ".svg": "image/svg+xml" };
 const security = {
   "x-frame-options": "DENY",
   "x-content-type-options": "nosniff",
@@ -29,7 +30,7 @@ const PORT = Number(process.env.PORT || 10000);
 createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
-    const fn = routes[url.pathname];
+    const fn = routes[url.pathname] || (url.pathname.startsWith("/api/admin/") ? adminApi : null);
     if (fn) {
       const chunks = [];
       let size = 0;
@@ -44,11 +45,14 @@ createServer(async (req, res) => {
       return res.end(Buffer.from(await r.arrayBuffer()));
     }
     if (url.pathname === "/healthz") { res.writeHead(200); return res.end("ok"); }
-    const rel = decodeURIComponent(url.pathname === "/" ? "/index.html" : url.pathname);
+    let rel = decodeURIComponent(url.pathname);
+    if (rel.endsWith("/")) rel += "index.html";
+    if (rel === "/admin") { res.writeHead(301, { location: "/admin/" }); return res.end(); }
     const file = normalize(join(root, rel));
     if (!file.startsWith(normalize(root))) { res.writeHead(403); return res.end(); }
     const data = await readFile(file);
-    res.writeHead(200, { ...security, "content-type": types[extname(file)] || "application/octet-stream", "cache-control": "public, max-age=300" });
+    const noCache = rel.startsWith("/admin/") || rel.endsWith("sw.js");
+    res.writeHead(200, { ...security, "content-type": types[extname(file)] || "application/octet-stream", "cache-control": noCache ? "no-cache" : "public, max-age=300", ...(rel.startsWith("/admin/") ? { "x-robots-tag": "noindex" } : {}) });
     res.end(data);
   } catch (e) {
     if (e.code !== "ENOENT" && e.code !== "EISDIR") console.error(e);
